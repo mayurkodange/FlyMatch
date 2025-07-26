@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Flight Route Assignment Tool</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background-color: #eef2f7;
+      margin: 0; padding: 0;
+    }
+    .container {
+      max-width: 800px;
+      margin: 60px auto;
+      padding: 30px;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+    }
+    h1 {
+      text-align: center;
+      color: #222;
+      margin-bottom: 25px;
+    }
+    form {
+      display: grid;
+      gap: 15px;
+    }
+    label {
+      font-weight: 600;
+    }
+    input, select {
+      padding: 10px;
+      font-size: 16px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+    }
+    button {
+      padding: 12px;
+      font-size: 16px;
+      background-color: #007bfc;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+    button:hover {
+      background-color: #005bb5;
+    }
+    #suggestions {
+      margin-top: 30px;
+    }
+    #suggestions ul {
+      list-style: none;
+      padding: 0;
+    }
+    #suggestions li {
+      background: #f8faff;
+      margin: 8px 0;
+      padding: 12px;
+      border-left: 4px solid #007bfc;
+      border-radius: 4px;
+    }
+    #suggestions p {
+      font-weight: 600;
+    }
+    .time-inputs {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .time-inputs input {
+      width: 60px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Flight Route Assignment Tool</h1>
+    <form id="optimizerForm">
+      <label for="refPlane">Reference Aircraft:</label>
+      <select id="refPlane" required></select>
+
+      <div class="time-inputs">
+        <label>Ref. Time (hrs):</label>
+        <input type="number" id="refHours" min="0" value="0" required/>
+        <label>Min:</label>
+        <input type="number" id="refMins" min="0" max="59" value="0" required/>
+      </div>
+
+      <label for="routeCategory">Runway Category of Route:</label>
+      <input type="number" id="routeCategory" required min="1" max="10"/>
+
+      <label for="economyDemand">Economy Demand:</label>
+      <input type="number" id="economyDemand" required min="0"/>
+
+      <button type="submit">Suggest Planes</button>
+    </form>
+    <div id="suggestions"></div>
+  </div>
+
+  <script>
+    const aircraftDB = [
+      {category:8, name:'A380-800', speed:903, seats:853, consum:2.44},
+      {category:9, name:'A340-600', speed:881, seats:530, consum:2.64},
+      {category:8, name:'A350-1000', speed:911, seats:522, consum:2.06},
+      {category:9, name:'A340-500', speed:881, seats:475, consum:2.82},
+      {category:7, name:'A350-900XWB', speed:911, seats:475, consum:2.13},
+      {category:8, name:'A340-300', speed:871, seats:440, consum:2.45},
+      {category:6, name:'A330-300', speed:871, seats:440, consum:2.05},
+      {category:8, name:'777-200LR', speed:892, seats:440, consum:2.65},
+      {category:8, name:'777-200ER', speed:892, seats:440, consum:2.72},
+      {category:6, name:'777-200', speed:892, seats:440, consum:2.75},
+      {category:7, name:'A350-900ULR', speed:911, seats:440, consum:2.13},
+      {category:7, name:'A330-200', speed:871, seats:406, consum:2.55},
+      {category:5, name:'A330-800', speed:883, seats:406, consum:2.27},
+      {category:8, name:'787-8', speed:911, seats:381, consum:2.23},
+      {category:4, name:'A300-600R', speed:850, seats:360, consum:2.51},
+      {category:6, name:'II-96-300', speed:870, seats:300, consum:4.42},
+      {category:6, name:'A310-300', speed:850, seats:275, consum:2.85},
+      {category:5, name:'A321neo-LR', speed:839, seats:244, consum:1.90},
+      {category:5, name:'A321neo', speed:839, seats:244, consum:1.89},
+      {category:5, name:'A321XLR', speed:876, seats:244, consum:1.75},
+      {category:5, name:'757-200', speed:850, seats:239, consum:2.40},
+      {category:5, name:'A320-200', speed:828, seats:180, consum:2.39},
+      {category:6, name:'MD-83', speed:807, seats:167, consum:3.42},
+      {category:4, name:'A319-100', speed:828, seats:160, consum:2.60},
+      {category:4, name:'A319neo', speed:839, seats:160, consum:2.60},
+      {category:4, name:'A220-300', speed:850, seats:160, consum:2.375},
+      {category:5, name:'737-300', speed:786, seats:149, consum:3.52},
+      {category:5, name:'737-700ER', speed:834, seats:149, consum:3.00},
+      {category:3, name:'737-700', speed:834, seats:149, consum:2.74},
+      {category:2, name:'A220-100', speed:850, seats:135, consum:2.85},
+      {category:6, name:'737-500', speed:786, seats:132, consum:3.23},
+      {category:4, name:'737-600', speed:834, seats:132, consum:3.30},
+      {category:4, name:'SSJ-100-95', speed:828, seats:98, consum:3.52},
+    ];
+
+    const OVERSHOOT_LIMIT = -150;
+    const form      = document.getElementById('optimizerForm');
+    const refSelect = document.getElementById('refPlane');
+    const catInput  = document.getElementById('routeCategory');
+    const outDiv    = document.getElementById('suggestions');
+
+    function populateRefs() {
+      const cat = +catInput.value;
+      refSelect.innerHTML = '';
+      aircraftDB
+        .filter(p => p.category <= cat)
+        .forEach(p => {
+          const o = document.createElement('option');
+          o.value = p.name;
+          o.text  = `${p.name} (cat ${p.category})`;
+          refSelect.appendChild(o);
+        });
+    }
+
+    window.addEventListener('DOMContentLoaded', populateRefs);
+    catInput.addEventListener('input', populateRefs);
+
+    form.addEventListener('submit', e => {
+      e.preventDefault();
+      outDiv.innerHTML = '';
+
+      const refName  = refSelect.value;
+      const hrs      = +document.getElementById('refHours').value;
+      const mins     = +document.getElementById('refMins').value;
+      const cat      = +catInput.value;
+      let remaining  = +document.getElementById('economyDemand').value;
+
+      const refPlane = aircraftDB.find(p => p.name === refName);
+      const rtHrs    = hrs + mins / 60;
+      const distance = refPlane.speed * (rtHrs / 2);
+
+      const eligible = aircraftDB
+        .filter(p => p.category <= cat)
+        .filter(p => !(cat > 3 && p.category <= 2))
+        .map(p => {
+          const rtTime   = (distance / p.speed) * 2;
+          const maxTrips = Math.floor(24 / rtTime);
+          return {
+            ...p,
+            maxTrips,
+            capacity: p.seats * maxTrips * 2,
+            leftover: 24 - rtTime * maxTrips
+          };
+        })
+        .filter(p => p.maxTrips > 0)
+        .sort((a, b) => b.capacity - a.capacity);
+
+      const picks = [];
+      eligible.forEach(p => {
+        const maxCount = Math.floor((remaining - OVERSHOOT_LIMIT) / p.capacity);
+        if (maxCount > 0) {
+          picks.push({ plane: p, count: maxCount });
+          remaining -= p.capacity * maxCount;
+        }
+      });
+
+      if (picks.length === 0) {
+        outDiv.innerHTML = '<p>No valid aircraft available.</p>';
+        return;
+      }
+
+      let html = '<h2>Suggested Fleet:</h2><ul>';
+      picks.forEach(({plane, count}) => {
+        const totalSeats = plane.capacity * count;
+        const hrsLeft    = Math.floor(plane.leftover);
+        const minsLeft   = Math.round((plane.leftover - hrsLeft) * 60);
+        html += `<li><strong>${plane.name}</strong> ×${count}: ${totalSeats} seats/day `
+             + `(${plane.maxTrips} trips each, leftover ${hrsLeft}h ${minsLeft}m)</li>`;
+      });
+      html += `</ul><p><strong>Remaining Demand:</strong> ${remaining}</p>`;
+
+      const last = picks[picks.length - 1];
+      const withoutLast = remaining + last.plane.capacity * last.count;
+
+      html += `<h3>Scenario on “${last.plane.name}”</h3>`;
+      html += `<p>— If you <strong>omit</strong> all ${last.plane.name}: remaining demand = ${withoutLast}</p>`;
+      html += `<p>— If you <strong>keep</strong> ${last.plane.name}: remaining demand = ${remaining}</p>`;
+
+      outDiv.innerHTML = html;
+    });
+  </script>
+</body>
+</html>
